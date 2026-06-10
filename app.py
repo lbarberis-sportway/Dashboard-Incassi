@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 from datetime import timedelta
 
-st.set_page_config(page_title="Dashboard Incassi Negozi", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Dashboard Incassi Negozi", layout="wide", page_icon="logo.png")
 
 @st.cache_data
 def load_data():
