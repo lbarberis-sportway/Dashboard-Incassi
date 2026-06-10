@@ -200,7 +200,7 @@ if anno_corrente and anno_confronto:
         
         # Formattazione
         st.dataframe(
-            pivot_anno.style.format("€ {:,.0f}").background_gradient(cmap='Greens', axis=0), 
+            pivot_anno.style.format("€ {:,.0f}", na_rep="-").background_gradient(cmap='Greens', axis=0), 
             use_container_width=True
         )
         
@@ -208,7 +208,7 @@ if anno_corrente and anno_confronto:
         # Calcolo del Delta percentuale
         pivot_anno_delta = pivot_anno.pct_change()
         st.dataframe(
-            pivot_anno_delta.style.format("{:+.1%}").background_gradient(cmap='RdYlGn', axis=0, vmin=-0.3, vmax=0.3), 
+            pivot_anno_delta.style.format("{:+.1%}", na_rep="-").background_gradient(cmap='RdYlGn', axis=0, vmin=-0.3, vmax=0.3), 
             use_container_width=True
         )
         
@@ -232,7 +232,7 @@ if anno_corrente and anno_confronto:
             subset_rows = pivot_mese.index[:-1]
             
             st.dataframe(
-                pivot_mese.style.format("€ {:,.0f}").background_gradient(cmap='Blues', axis=0, subset=(subset_rows, pivot_mese.columns)), 
+                pivot_mese.style.format("€ {:,.0f}", na_rep="-").background_gradient(cmap='Blues', axis=0, subset=(subset_rows, pivot_mese.columns)), 
                 use_container_width=True
             )
         else:
