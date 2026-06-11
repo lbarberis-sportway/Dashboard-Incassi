@@ -4,6 +4,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
 
+def format_euro(val):
+    if pd.isna(val):
+        return "-"
+    return f"€ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+def format_perc(val):
+    if pd.isna(val):
+        return "-"
+    return f"{val:+.1%}".replace(".", ",")
+
 st.set_page_config(page_title="Dashboard Incassi Negozi", layout="wide", page_icon="logo.png")
 
 @st.cache_data
@@ -84,16 +94,16 @@ if anno_corrente and anno_confronto:
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric(f"Incasso YTD {anno_corrente}", f"€ {ytd_curr:,.0f}".replace(",", "."))
+            st.metric(f"Incasso YTD {anno_corrente}", format_euro(ytd_curr))
         with col2:
-            st.metric(f"Incasso YTD {anno_confronto} (Allineato)", f"€ {ytd_prev:,.0f}".replace(",", "."))
+            st.metric(f"Incasso YTD {anno_confronto} (Allineato)", format_euro(ytd_prev))
         with col3:
             delta = ytd_curr - ytd_prev
             if ytd_prev > 0:
                 delta_perc = (delta / ytd_prev) * 100
             else:
                 delta_perc = 0
-            st.metric("Delta (Valore / %)", f"€ {delta:,.0f}".replace(",", "."), f"{delta_perc:+.2f}%")
+            st.metric("Delta (Valore / %)", format_euro(delta), f"{delta_perc:+.2f}%".replace(".", ","))
             
     else:
         st.warning(f"Nessun dato trovato per l'anno {anno_corrente}.")
@@ -165,11 +175,11 @@ if anno_corrente and anno_confronto:
 
         # Stile DataFrame
         format_dict = {
-            col_inc_curr: "€ {:,.0f}",
-            col_cum_curr: "€ {:,.0f}",
-            col_inc_prev: "€ {:,.0f}",
-            col_cum_prev: "€ {:,.0f}",
-            'Delta %': "{:+.1%}"
+            col_inc_curr: format_euro,
+            col_cum_curr: format_euro,
+            col_inc_prev: format_euro,
+            col_cum_prev: format_euro,
+            'Delta %': format_perc
         }
         
         styled_matrix = ytd_matrix.style.format(format_dict, na_rep="-")
@@ -189,9 +199,9 @@ if anno_corrente and anno_confronto:
         st.subheader(f"Periodo A ({anno_corrente})")
         # Default al primo dell'anno per evitare errori se non ci sono date
         min_date_curr = df_curr['Data'].min().date() if not df_curr.empty else pd.to_datetime(f"{anno_corrente}-01-01").date()
-        data_inizio_A = st.date_input(f"Inizio Periodo {anno_corrente}", min_date_curr)
+        data_inizio_A = st.date_input(f"Inizio Periodo {anno_corrente}", min_date_curr, format="DD/MM/YYYY")
         # Default a un mese dopo, o max date
-        data_fine_A = st.date_input(f"Fine Periodo {anno_corrente}", min_date_curr + timedelta(days=30))
+        data_fine_A = st.date_input(f"Fine Periodo {anno_corrente}", min_date_curr + timedelta(days=30), format="DD/MM/YYYY")
         
     with colB:
         st.subheader(f"Periodo B di Confronto ({anno_confronto})")
@@ -208,7 +218,8 @@ if anno_corrente and anno_confronto:
             f"Inizio Periodo {anno_confronto}",
             value=data_inizio_B_default,
             min_value=min_date_prev,
-            key=f"inizio_B_{anno_confronto}_{data_inizio_A.isoformat()}"
+            key=f"inizio_B_{anno_confronto}_{data_inizio_A.isoformat()}",
+            format="DD/MM/YYYY"
         )
         st.caption(f"Data auto-allineata come YTD (stessa Settimana ISO e giorno di {data_inizio_A.strftime('%d/%m/%Y')}). Modificabile manualmente.")
         st.info("La data di fine viene calcolata in automatico per combaciare con la durata di analisi del Periodo A.")
@@ -252,7 +263,7 @@ if anno_corrente and anno_confronto:
             delta_saldi = tot_A - tot_B
             delta_saldi_perc = (delta_saldi / tot_B * 100) if tot_B > 0 else 0
             
-            st.success(f"**Totale {anno_corrente}:** € {tot_A:,.0f}".replace(",", ".") + f" | **Totale {anno_confronto}:** € {tot_B:,.0f}".replace(",", ".") + f" | **Delta:** {delta_saldi_perc:+.2f}%")
+            st.success(f"**Totale {anno_corrente}:** {format_euro(tot_A)} | **Totale {anno_confronto}:** {format_euro(tot_B)} | **Delta:** {f'{delta_saldi_perc:+.2f}%'.replace('.', ',')}")
         else:
             st.warning("Non ci sono abbastanza dati nei periodi selezionati per mostrare il grafico.")
     else:
@@ -272,7 +283,7 @@ if anno_corrente and anno_confronto:
         
         # Formattazione
         st.dataframe(
-            pivot_anno.style.format("€ {:,.0f}", na_rep="-").background_gradient(cmap='Greens', axis=0), 
+            pivot_anno.style.format(format_euro).background_gradient(cmap='Greens', axis=0), 
             use_container_width=True
         )
         
@@ -280,7 +291,7 @@ if anno_corrente and anno_confronto:
         # Calcolo del Delta percentuale
         pivot_anno_delta = pivot_anno.pct_change()
         st.dataframe(
-            pivot_anno_delta.style.format("{:+.1%}", na_rep="-").background_gradient(cmap='RdYlGn', axis=0, vmin=-0.3, vmax=0.3), 
+            pivot_anno_delta.style.format(format_perc).background_gradient(cmap='RdYlGn', axis=0, vmin=-0.3, vmax=0.3), 
             use_container_width=True
         )
         
@@ -308,7 +319,7 @@ if anno_corrente and anno_confronto:
             subset_rows = pivot_mese.index[:-1]
             
             st.dataframe(
-                pivot_mese.style.format("€ {:,.0f}", na_rep="-").background_gradient(cmap='Blues', axis=0, subset=(subset_rows, pivot_mese.columns)), 
+                pivot_mese.style.format(format_euro).background_gradient(cmap='Blues', axis=0, subset=(subset_rows, pivot_mese.columns)), 
                 use_container_width=True
             )
         else:
