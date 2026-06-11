@@ -208,7 +208,7 @@ if anno_corrente and anno_confronto:
             f"Inizio Periodo {anno_confronto}",
             value=data_inizio_B_default,
             min_value=min_date_prev,
-            key=f"inizio_B_{data_inizio_A.isoformat()}"
+            key=f"inizio_B_{anno_confronto}_{data_inizio_A.isoformat()}"
         )
         st.caption(f"Data auto-allineata come YTD (stessa Settimana ISO e giorno di {data_inizio_A.strftime('%d/%m/%Y')}). Modificabile manualmente.")
         st.info("La data di fine viene calcolata in automatico per combaciare con la durata di analisi del Periodo A.")
