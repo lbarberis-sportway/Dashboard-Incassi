@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from datetime import timedelta
 
 st.set_page_config(page_title="Dashboard Incassi Negozi", layout="wide", page_icon="logo.png")
@@ -119,6 +120,63 @@ if anno_corrente and anno_confronto:
         fig_trend.update_layout(xaxis=dict(tickmode='linear', dtick=1))
         st.plotly_chart(fig_trend, use_container_width=True)
 
+    # --- MATRICE SETTIMANALE YTD (INTERATTIVA) ---
+    if not df_curr.empty and not df_prev.empty:
+        ultima_data_curr = df_curr['Data'].max()
+        latest_day_data = df_curr[df_curr['Data'] == ultima_data_curr]
+        ultima_settimana_curr = latest_day_data['Settimana'].values[0]
+        ultimo_giorno_sett_curr = latest_day_data['GiornoSettimana'].values[0]
+
+        mask_prev_aligned = (
+            (df_prev['Settimana'] < ultima_settimana_curr) |
+            ((df_prev['Settimana'] == ultima_settimana_curr) & (df_prev['GiornoSettimana'] <= ultimo_giorno_sett_curr))
+        )
+        df_prev_aligned = df_prev[mask_prev_aligned]
+
+        weekly_curr = df_curr.groupby('Settimana')['Incasso'].sum().reset_index()
+        weekly_curr.columns = ['Settimana', f'Incasso {anno_corrente}']
+
+        weekly_prev = df_prev_aligned.groupby('Settimana')['Incasso'].sum().reset_index()
+        weekly_prev.columns = ['Settimana', f'Incasso {anno_confronto}']
+
+        ytd_matrix = weekly_curr.merge(weekly_prev, on='Settimana', how='left')
+        ytd_matrix = ytd_matrix.sort_values('Settimana').reset_index(drop=True)
+        ytd_matrix = ytd_matrix.fillna(0)
+
+        ytd_matrix[f'Cumulato {anno_corrente}'] = ytd_matrix[f'Incasso {anno_corrente}'].cumsum()
+        ytd_matrix[f'Cumulato {anno_confronto}'] = ytd_matrix[f'Incasso {anno_confronto}'].cumsum()
+
+        ytd_matrix['Delta %'] = 0.0
+        mask_valid = ytd_matrix[f'Incasso {anno_confronto}'] > 0
+        ytd_matrix.loc[mask_valid, 'Delta %'] = (
+            (ytd_matrix.loc[mask_valid, f'Incasso {anno_corrente}'] - ytd_matrix.loc[mask_valid, f'Incasso {anno_confronto}'])
+            / ytd_matrix.loc[mask_valid, f'Incasso {anno_confronto}']
+        )
+
+        col_inc_curr = f'Incasso {anno_corrente}'
+        col_inc_prev = f'Incasso {anno_confronto}'
+        col_cum_curr = f'Cumulato {anno_corrente}'
+        col_cum_prev = f'Cumulato {anno_confronto}'
+
+        ytd_matrix.set_index('Settimana', inplace=True)
+
+        st.subheader(f"Matrice Settimanale YTD ({anno_corrente} vs {anno_confronto})")
+        st.caption("Dettaglio settimana per settimana con cumulato e delta %")
+
+        # Stile DataFrame
+        format_dict = {
+            col_inc_curr: "€ {:,.0f}",
+            col_cum_curr: "€ {:,.0f}",
+            col_inc_prev: "€ {:,.0f}",
+            col_cum_prev: "€ {:,.0f}",
+            'Delta %': "{:+.1%}"
+        }
+        
+        styled_matrix = ytd_matrix.style.format(format_dict, na_rep="-")
+        styled_matrix = styled_matrix.background_gradient(cmap='RdYlGn', subset=['Delta %'], vmin=-0.3, vmax=0.3)
+        
+        st.dataframe(styled_matrix, use_container_width=True)
+
     st.divider()
     
     # --- SEZIONE 3: CONFRONTO PERIODI CUSTOM (ES. SALDI) ---
@@ -138,8 +196,22 @@ if anno_corrente and anno_confronto:
     with colB:
         st.subheader(f"Periodo B di Confronto ({anno_confronto})")
         min_date_prev = df_prev['Data'].min().date() if not df_prev.empty else pd.to_datetime(f"{anno_confronto}-01-01").date()
-        data_inizio_B = st.date_input(f"Inizio Periodo {anno_confronto}", min_date_prev)
-        st.info("La data di fine viene calcolata automaticamente per mantenere la stessa durata in giorni del Periodo A.")
+
+        # Allineamento YTD: stessa settimana ISO e stesso giorno della settimana di Periodo A
+        ts_a = pd.Timestamp(data_inizio_A)
+        iso_week, iso_weekday = ts_a.isocalendar()[1], ts_a.isocalendar()[2]  # 1-53, 1=Mon..7=Sun
+        jan4_prev = pd.Timestamp(anno_confronto, 1, 4)
+        lun_sett1_prev = jan4_prev - pd.Timedelta(days=jan4_prev.dayofweek)
+        data_inizio_B_default = (lun_sett1_prev + pd.Timedelta(weeks=iso_week - 1, days=iso_weekday - 1)).date()
+
+        data_inizio_B = st.date_input(
+            f"Inizio Periodo {anno_confronto}",
+            value=data_inizio_B_default,
+            min_value=min_date_prev,
+            key=f"inizio_B_{data_inizio_A.isoformat()}"
+        )
+        st.caption(f"Data auto-allineata come YTD (stessa Settimana ISO e giorno di {data_inizio_A.strftime('%d/%m/%Y')}). Modificabile manualmente.")
+        st.info("La data di fine viene calcolata in automatico per combaciare con la durata di analisi del Periodo A.")
         
     if data_inizio_A <= data_fine_A:
         durata_giorni = (data_fine_A - data_inizio_A).days
@@ -211,6 +283,10 @@ if anno_corrente and anno_confronto:
             pivot_anno_delta.style.format("{:+.1%}", na_rep="-").background_gradient(cmap='RdYlGn', axis=0, vmin=-0.3, vmax=0.3), 
             use_container_width=True
         )
+        
+        if not df_curr.empty:
+            ultima_data_str = df_curr['Data'].max().strftime('%d/%m/%Y')
+            st.info(f"Attenzione: l'anno corrente ({anno_corrente}) è ancora in corso, i dati arrivano fino al giorno {ultima_data_str}.")
         
     with tab_mese:
         st.subheader(f"Incasso per Mese e Negozio (Anno selezionato: {anno_corrente})")
