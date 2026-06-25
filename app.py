@@ -72,25 +72,24 @@ if anno_corrente and anno_confronto:
     df_prev = df_filtered[df_filtered['Anno'] == anno_confronto]
     
     if not df_curr.empty:
+        ultima_data_str = df_curr['Data'].max().strftime('%d/%m/%Y')
+        st.info(f"Attenzione: l'anno corrente ({anno_corrente}) è ancora in corso, i dati arrivano fino al giorno {ultima_data_str}.")
+    
+    if not df_curr.empty:
         # Trova l'ultimo record dell'anno corrente per capire fin dove calcolare il YTD
         ultima_data_curr = df_curr['Data'].max()
-        
-        # Filtriamo df_curr per prendere i dati del giorno massimo
-        latest_day_data = df_curr[df_curr['Data'] == ultima_data_curr]
-        ultima_settimana_curr = latest_day_data['Settimana'].values[0]
-        ultimo_giorno_sett_curr = latest_day_data['GiornoSettimana'].values[0]
         
         # YTD Anno Corrente: tutto l'anno fino ad oggi
         ytd_curr = df_curr['Incasso'].sum()
         
-        # YTD Anno Confronto (Allineato)
-        # Prendiamo tutte le settimane fino all'ultima settimana. 
-        # Per l'ultima settimana considerata, ci fermiamo al giorno della settimana corrispondente.
-        mask_prev_ytd = (
-            (df_prev['Settimana'] < ultima_settimana_curr) | 
-            ((df_prev['Settimana'] == ultima_settimana_curr) & (df_prev['GiornoSettimana'] <= ultimo_giorno_sett_curr))
-        )
-        ytd_prev = df_prev[mask_prev_ytd]['Incasso'].sum()
+        # YTD Anno Confronto (Allineato per data equivalente anziché per numero settimana ISO)
+        # Calcola la data nell'anno di confronto corrispondente alla stessa settimana ISO e giorno della settimana
+        ultima_settimana_curr = ultima_data_curr.isocalendar()[1]
+        ultimo_giorno_sett_curr = ultima_data_curr.dayofweek
+        jan4_prev = pd.Timestamp(anno_confronto, 1, 4)
+        lun_sett1_prev = jan4_prev - pd.Timedelta(days=jan4_prev.dayofweek)
+        data_equivalente = lun_sett1_prev + pd.Timedelta(weeks=ultima_settimana_curr - 1, days=ultimo_giorno_sett_curr)
+        ytd_prev = df_prev[df_prev['Data'] <= data_equivalente]['Incasso'].sum()
         
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -133,15 +132,13 @@ if anno_corrente and anno_confronto:
     # --- MATRICE SETTIMANALE YTD (INTERATTIVA) ---
     if not df_curr.empty and not df_prev.empty:
         ultima_data_curr = df_curr['Data'].max()
-        latest_day_data = df_curr[df_curr['Data'] == ultima_data_curr]
-        ultima_settimana_curr = latest_day_data['Settimana'].values[0]
-        ultimo_giorno_sett_curr = latest_day_data['GiornoSettimana'].values[0]
+        ultima_settimana_curr = ultima_data_curr.isocalendar()[1]
+        ultimo_giorno_sett_curr = ultima_data_curr.dayofweek
+        jan4_prev = pd.Timestamp(anno_confronto, 1, 4)
+        lun_sett1_prev = jan4_prev - pd.Timedelta(days=jan4_prev.dayofweek)
+        data_equivalente = lun_sett1_prev + pd.Timedelta(weeks=ultima_settimana_curr - 1, days=ultimo_giorno_sett_curr)
 
-        mask_prev_aligned = (
-            (df_prev['Settimana'] < ultima_settimana_curr) |
-            ((df_prev['Settimana'] == ultima_settimana_curr) & (df_prev['GiornoSettimana'] <= ultimo_giorno_sett_curr))
-        )
-        df_prev_aligned = df_prev[mask_prev_aligned]
+        df_prev_aligned = df_prev[df_prev['Data'] <= data_equivalente]
 
         weekly_curr = df_curr.groupby('Settimana')['Incasso'].sum().reset_index()
         weekly_curr.columns = ['Settimana', f'Incasso {anno_corrente}']
@@ -295,31 +292,84 @@ if anno_corrente and anno_confronto:
             use_container_width=True
         )
         
-        if not df_curr.empty:
-            ultima_data_str = df_curr['Data'].max().strftime('%d/%m/%Y')
-            st.info(f"Attenzione: l'anno corrente ({anno_corrente}) è ancora in corso, i dati arrivano fino al giorno {ultima_data_str}.")
-        
     with tab_mese:
-        st.subheader(f"Incasso per Mese e Negozio (Anno selezionato: {anno_corrente})")
-        # Raggruppa solo per l'anno corrente
-        pivot_mese = df_curr.pivot_table(index='Mese', columns='Negozio', values='Incasso', aggfunc='sum')
-        
-        if not pivot_mese.empty:
-            pivot_mese['Totale Mese'] = pivot_mese.sum(axis=1)
-            
-            # Mappiamo i numeri dei mesi in nomi per renderli più leggibili
-            mesi_nomi = {1:'Gen', 2:'Feb', 3:'Mar', 4:'Apr', 5:'Mag', 6:'Giu', 
-                         7:'Lug', 8:'Ago', 9:'Set', 10:'Ott', 11:'Nov', 12:'Dic'}
-            pivot_mese.index = pivot_mese.index.map(lambda x: mesi_nomi.get(x, str(x)))
-            
-            # Aggiungiamo la riga dei totali per colonna (in fondo)
-            pivot_mese.loc['Totale'] = pivot_mese.sum(axis=0)
-            
-            # Escludiamo l'ultima riga ('Totale') dal calcolo dei colori per non sballare la scala
-            subset_rows = pivot_mese.index[:-1]
-            
+        mesi_nomi = {1:'Gen', 2:'Feb', 3:'Mar', 4:'Apr', 5:'Mag', 6:'Giu',
+                     7:'Lug', 8:'Ago', 9:'Set', 10:'Ott', 11:'Nov', 12:'Dic'}
+
+        mese_curr = df_curr.groupby('Mese')['Incasso'].sum().reset_index()
+        mese_curr.columns = ['Mese', f'Incasso {anno_corrente}']
+        mese_prev = df_prev.groupby('Mese')['Incasso'].sum().reset_index()
+        mese_prev.columns = ['Mese', f'Incasso {anno_confronto}']
+
+        mese_confronto = mese_curr.merge(mese_prev, on='Mese', how='left').fillna(0)
+        mese_confronto['MeseLabel'] = mese_confronto['Mese'].map(mesi_nomi)
+
+        fig_mesi = px.bar(mese_confronto, x='MeseLabel', y=[f'Incasso {anno_corrente}', f'Incasso {anno_confronto}'],
+                          barmode='group', title=f"Confronto Mensile {anno_corrente} vs {anno_confronto}",
+                          labels={"value": "Incasso (€)", "variable": "Anno", "MeseLabel": "Mese"})
+        st.plotly_chart(fig_mesi, use_container_width=True)
+
+        st.subheader(f"Dettaglio Mensile per Negozio ({anno_corrente} vs {anno_confronto})")
+        pivot_curr = df_curr.pivot_table(index='Mese', columns='Negozio', values='Incasso', aggfunc='sum').fillna(0)
+        pivot_prev = df_prev.pivot_table(index='Mese', columns='Negozio', values='Incasso', aggfunc='sum').fillna(0)
+
+        if not pivot_curr.empty:
+            negozi = sorted(pivot_curr.columns)
+            for n in negozi:
+                if n not in pivot_prev.columns:
+                    pivot_prev[n] = 0.0
+            pivot_prev = pivot_prev[negozi]
+
+            data = pd.DataFrame(index=pivot_curr.index)
+            for n in negozi:
+                c_val = pivot_curr[n]
+                p_val = pivot_prev[n]
+                data[f'{n} {anno_corrente}'] = c_val
+                data[f'{n} {anno_confronto}'] = p_val
+                delta_pct = pd.Series(0.0, index=pivot_curr.index)
+                mask = p_val > 0
+                delta_pct[mask] = (c_val[mask] - p_val[mask]) / p_val[mask]
+                data[f'{n} Delta %'] = delta_pct
+
+            data.index = data.index.map(lambda x: mesi_nomi.get(x, str(x)))
+            data.loc['Totale'] = data.sum(axis=0)
+            for n in negozi:
+                c = data.loc['Totale', f'{n} {anno_corrente}']
+                p = data.loc['Totale', f'{n} {anno_confronto}']
+                if p > 0:
+                    data.loc['Totale', f'{n} Delta %'] = (c - p) / p
+
+            delta_cols = [c for c in data.columns if 'Delta' in c]
+            euro_cols = [c for c in data.columns if c not in delta_cols]
+            format_map = {c: format_euro for c in euro_cols}
+            format_map.update({c: format_perc for c in delta_cols})
+            subset_no_totale = data.index[:-1]
+
+            styled = data.style.format(format_map, na_rep='-')
+            styled = styled.background_gradient(cmap='RdYlGn', subset=(subset_no_totale, delta_cols), vmin=-0.3, vmax=0.3)
+            st.dataframe(styled, use_container_width=True)
+
+            # Tabella riepilogativa totali
+            st.subheader("Riepilogo Mensile")
+            totali = pd.DataFrame(index=pivot_curr.index)
+            totali[f'Totale {anno_corrente}'] = pivot_curr[negozi].sum(axis=1)
+            totali[f'Totale {anno_confronto}'] = pivot_prev[negozi].sum(axis=1)
+            tot_delta = totali[f'Totale {anno_confronto}'] > 0
+            totali['Delta %'] = 0.0
+            totali.loc[tot_delta, 'Delta %'] = (
+                (totali.loc[tot_delta, f'Totale {anno_corrente}'] - totali.loc[tot_delta, f'Totale {anno_confronto}'])
+                / totali.loc[tot_delta, f'Totale {anno_confronto}']
+            )
+            totali.index = totali.index.map(lambda x: mesi_nomi.get(x, str(x)))
+            totali.loc['Totale'] = totali.sum(axis=0)
+            tot_c = totali.loc['Totale', f'Totale {anno_corrente}']
+            tot_p = totali.loc['Totale', f'Totale {anno_confronto}']
+            if tot_p > 0:
+                totali.loc['Totale', 'Delta %'] = (tot_c - tot_p) / tot_p
+
             st.dataframe(
-                pivot_mese.style.format(format_euro).background_gradient(cmap='Blues', axis=0, subset=(subset_rows, pivot_mese.columns)), 
+                totali.style.format({f'Totale {anno_corrente}': format_euro, f'Totale {anno_confronto}': format_euro, 'Delta %': format_perc})
+                      .background_gradient(cmap='RdYlGn', subset=(totali.index[:-1], ['Delta %']), vmin=-0.3, vmax=0.3),
                 use_container_width=True
             )
         else:
