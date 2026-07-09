@@ -211,19 +211,36 @@ if anno_corrente and anno_confronto:
         lun_sett1_prev = jan4_prev - pd.Timedelta(days=jan4_prev.dayofweek)
         data_inizio_B_default = (lun_sett1_prev + pd.Timedelta(weeks=iso_week - 1, days=iso_weekday - 1)).date()
 
+        reset_key = st.query_params.get("reset", "0")
         data_inizio_B = st.date_input(
             f"Inizio Periodo {anno_confronto}",
             value=data_inizio_B_default,
             min_value=min_date_prev,
-            key=f"inizio_B_{anno_confronto}_{data_inizio_A.isoformat()}",
+            key=f"inizio_B_{anno_confronto}_{data_inizio_A.isoformat()}_{reset_key}",
             format="DD/MM/YYYY"
         )
-        st.caption(f"Data auto-allineata come YTD (stessa Settimana ISO e giorno di {data_inizio_A.strftime('%d/%m/%Y')}). Modificabile manualmente.")
-        st.info("La data di fine viene calcolata in automatico per combaciare con la durata di analisi del Periodo A.")
+        if data_inizio_A <= data_fine_A:
+            durata_giorni_ = (data_fine_A - data_inizio_A).days
+        else:
+            durata_giorni_ = 0
+        data_fine_B_default = data_inizio_B + timedelta(days=durata_giorni_)
+
+        data_fine_B = st.date_input(
+            f"Fine Periodo {anno_confronto}",
+            value=data_fine_B_default,
+            min_value=data_inizio_B,
+            key=f"fine_B_{anno_confronto}_{data_inizio_A.isoformat()}_{reset_key}",
+            format="DD/MM/YYYY"
+        )
+        st.caption(f"Fine auto-allineata ({data_fine_B_default.strftime('%d/%m/%Y')}). Modificabile manualmente.")
+        
+        if st.button("↺ Allinea Periodo B al Periodo A", key="reset_allinea", type="tertiary"):
+            nuova_reset = str(int(reset_key) + 1)
+            st.query_params["reset"] = nuova_reset
+            st.rerun()
         
     if data_inizio_A <= data_fine_A:
         durata_giorni = (data_fine_A - data_inizio_A).days
-        data_fine_B = data_inizio_B + timedelta(days=durata_giorni)
         
         st.write(f"**Durata Analisi:** {durata_giorni + 1} giorni. Il Periodo B calcolato è dal `{data_inizio_B.strftime('%d/%m/%Y')}` al `{data_fine_B.strftime('%d/%m/%Y')}`.")
         
